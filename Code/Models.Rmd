@@ -1,0 +1,213 @@
+---
+title: "MATH564 Project"
+author: "Shahrukh | Jamal | Santosh"
+date: "11/10/2022"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+Load Relevant Libraries
+```{r}
+library(ggplot2)
+library(data.table)
+library(caret)
+library(leaps)
+library(glmnet)
+library(sass)
+```
+
+Read Table
+
+```{r}
+col_names= c('Y', 'X')
+df <- read.table("/Users/shahrukh/Downloads/diabetes_new.csv", sep=",", header = TRUE)
+head(df)
+```
+80/20 Train Test Split
+```{r}
+set.seed(0)
+trainIndex <- createDataPartition(df$Outcome, p = 0.80, list=F)
+
+df_Train <- df[ trainIndex,]
+df_Test  <- df[-trainIndex,]
+
+y_Train <- factor(df_Train$Outcome)
+x_Train <- df_Train[, c('Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age')]
+
+y_Test <- factor(df_Test$Outcome)
+x_Test <- df_Test[, c('Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age')]
+```
+
+```{r}
+cutoff <- 0.4
+```
+
+Create Accuracy Functions
+
+```{r}
+accuracy <- function(model)
+{
+  predict <- abs(predict(model, x_Test))
+  TAB<- table(y_Test, predict > cutoff)
+  print(TAB)
+  TN <- TAB[1,1]
+  TP <- TAB[2,2]
+  total <- TP + TN + TAB[2,1] + TAB[1,2]
+  accuracy <- (TP+TN)/total
+  cat("Accuracy: ", accuracy)
+}
+```
+
+```{r}
+accuracy2 <- function(model, best_lambda)
+{
+  predict <- predict(model, s=best_lambda , x_Test1)
+  TAB<- table(y_Test, predict > cutoff)
+  print(TAB)
+  TN <- TAB[1,1]
+  TP <- TAB[2,2]
+  total <- TP + TN + TAB[2,1] + TAB[1,2]
+  accuracy <- (TP+TN)/total
+  cat("Accuracy: ", accuracy)
+}
+```
+
+```{r}
+accuracy3 <- function(model)
+{
+  predict <- predict(model, x_Test, 'response')
+  TAB<- table(y_Test, predict > cutoff)
+  print(TAB)
+  TN <- TAB[1,1]
+  TP <- TAB[2,2]
+  total <- TP + TN + TAB[2,1] + TAB[1,2]
+  accuracy <- (TP+TN)/total
+  cat("Accuracy: ", accuracy)
+}
+```
+
+### 1. Linear Regression
+
+```{r}
+model1 <- lm(Outcome~. , data=df_Train)
+summary(model1)
+```
+
+
+```{r}
+accuracy(model1)
+```
+
+**Accuracy of Linear Regression Model = 82.35%**
+
+### 2. Ridge Regression
+
+```{r}
+y_Train1 <- df_Train$Outcome
+y_Test1 <- df_Test$Outcome
+x_Train1 <- data.matrix(df_Train[, c('Pregnancies', 'Glucose', 'BloodPressure', 
+                                    'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age')])
+x_Test1 <- data.matrix(df_Test[, c('Pregnancies', 'Glucose', 'BloodPressure', 
+                                  'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age')])
+```
+
+```{r}
+#perform k-fold cross-validation to find optimal lambda value
+cv_model_ridge <- cv.glmnet(x_Train1, y_Train1, alpha = 0)
+
+#find optimal lambda value that minimizes test MSE
+best_lambda_ridge <- cv_model_ridge$lambda.min
+best_lambda_ridge
+
+```
+
+```{r}
+model2 <- glmnet(x_Train1, y_Train1, alpha=0, lambda=best_lambda_ridge)
+coef(model2)
+```
+```{r}
+accuracy2(model2, best_lambda_ridge)
+```
+**Accuracy of Ridge Regression Model = 82.35%**
+
+### 3. Lasso Regression
+
+```{r}
+#perform k-fold cross-validation to find optimal lambda value
+cv_model_lasso <- cv.glmnet(x_Train1, y_Train1, alpha = 1)
+
+#find optimal lambda value that minimizes test MSE
+best_lambda_lasso <- cv_model_lasso$lambda.min
+best_lambda_lasso
+```
+
+```{r}
+model3 <- glmnet(x_Train1, y_Train1, alpha=1, lambda=best_lambda_lasso)
+coef(model3)
+```
+```{r}
+accuracy2(model3, best_lambda_lasso)
+```
+**Accuracy of Lasso Regression Model = 81.04%**
+
+
+### 4. Best Subset
+
+```{r}
+model_best <- regsubsets(Outcome~., data = df_Train, nvmax = 8)
+summary(model_best)
+
+```
+
+```{r}
+bestsub_summary <- summary(model_best)
+data.frame(
+  Adj_R2 = which.max(bestsub_summary$adjr2),
+  Cp = which.min(bestsub_summary$cp),
+  BIC = which.min(bestsub_summary$bic)
+)
+```
+
+Choosing Best Subset with 6 Features according to Adjusted R Squared and Cp Criterion.
+
+```{r}
+model4 <- lm(Outcome~ Pregnancies+Glucose+SkinThickness+Insulin+BMI+DiabetesPedigreeFunction, data=df_Train)
+summary(model4)
+```
+
+```{r}
+accuracy(model4)
+```
+**Accuracy of Best Subset Model = 81.70%**
+
+### 5. Logistic Regression
+
+```{r}
+model5 <- glm(Outcome~., data=df_Train, family='binomial')
+summary(model5)
+```
+
+```{r}
+accuracy3(model5)
+```
+**Accuracy of Logistic Regression Model = 81.70%**
+
+Plot Accuracy of Models
+```{r}
+acc <- c(0.8235, 0.8235, 0.8105, 0.8170, 0.8170)
+mod <- c('Linear', 'Ridge', 'Lasso', 'Best Subset', 'Logistic')
+x_plot <- data.frame(mod, acc)
+
+```
+
+
+```{r}
+ggplot(data=x_plot, aes(x=mod, y=acc, fill=mod)) +
+  geom_bar(stat="identity", width=0.5) + ylab("Accuracy") + xlab("Model") + ylim(0,0.9) +
+  scale_x_discrete(limits=c('Linear', 'Ridge', 'Lasso', 'Best Subset', 'Logistic')) + 
+  geom_text(aes(label = acc), size = 3, vjust = 3, position ="stack") +
+  guides(fill=guide_legend(title="Model"))
+```
